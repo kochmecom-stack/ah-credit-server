@@ -32,9 +32,9 @@ SEPAY_SECRET_KEY   = os.environ.get("SEPAY_SECRET_KEY",   "whsec_S6ClPG5FeNJtypy
 SEPAY_ENV          = os.environ.get("SEPAY_ENV",          "production")  # production = xac minh chu ky
 
 # ─── Bank info ────────────────────────────────────────────────────────────────
-BANK_ACCOUNT_NO    = "8867286256"
+BANK_NAME          = "ACB"
+BANK_ACCOUNT_NO    = "25804741"
 BANK_ACCOUNT_NAME  = "LA QUI HA"
-BANK_NAME          = "BIDV"
 
 # ─── Credit pricing ──────────────────────────────────────────────────────────
 VND_PER_CREDIT     = 1000   # 1.000 VND = 1 credit
