@@ -41,30 +41,105 @@ VND_PER_CREDIT     = 1000   # 1.000 VND = 1 credit
 COST_IMAGE_FAST    = 1      # Imagen 4 Fast:    1 credit/anh
 COST_IMAGE_QUALITY = 3      # Imagen 4 Quality: 3 credit/anh
 
-# ─── Data files (ho tro Render /data persistent disk) ──────────────────────
-_DATA_DIR = Path(os.environ.get("DATA_DIR", "."))
+# ─── Data storage: GitHub Gist (persistent) + local cache (fallback) ─────────
+_DATA_DIR    = Path(os.environ.get("DATA_DIR", "."))
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 CREDITS_FILE = _DATA_DIR / "user_credits.json"
 PAYMENT_LOG  = _DATA_DIR / "payment_log.json"
 
+# GitHub Gist config (lay tu env var tren Render)
+_GIST_ID     = os.environ.get("GIST_ID",     "")
+_GIST_TOKEN  = os.environ.get("GIST_TOKEN",  "")  # GitHub personal access token
+_GIST_FILE   = "ah_credit_data.json"
+
+# In-memory cache de giam so lan goi Gist API
+_credits_cache: dict | None = None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Credit management
+# Gist storage helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _gist_load() -> dict:
+    """Doc tu GitHub Gist. Tra ve {} neu loi."""
+    if not (_GIST_ID and _GIST_TOKEN):
+        return {}
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(
+            f"https://api.github.com/gists/{_GIST_ID}",
+            headers={
+                "Authorization": f"token {_GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "AH-Credit-Server/1.0",
+            }
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            gist_data = json.loads(r.read())
+            raw = gist_data["files"][_GIST_FILE]["content"]
+            return json.loads(raw)
+    except Exception as e:
+        print(f"[Gist] Load error: {e}")
+        return {}
+
+
+def _gist_save(data: dict):
+    """Luu vao GitHub Gist."""
+    if not (_GIST_ID and _GIST_TOKEN):
+        return
+    try:
+        import urllib.request as _ur
+        body = json.dumps({
+            "files": {_GIST_FILE: {"content": json.dumps(data, ensure_ascii=False, indent=2)}}
+        }).encode()
+        req = _ur.Request(
+            f"https://api.github.com/gists/{_GIST_ID}",
+            data=body,
+            headers={
+                "Authorization": f"token {_GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json",
+                "User-Agent": "AH-Credit-Server/1.0",
+            },
+            method="PATCH"
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            r.read()
+    except Exception as e:
+        print(f"[Gist] Save error: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Credit management (Gist-backed)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_credits() -> dict:
-    if CREDITS_FILE.exists():
-        try:
-            return json.loads(CREDITS_FILE.read_text("utf-8"))
-        except Exception:
-            pass
-    return {}
+    global _credits_cache
+    # Lan dau: doc tu Gist
+    if _credits_cache is None:
+        gist_data = _gist_load()
+        if gist_data:
+            _credits_cache = gist_data
+            # Sync local cache
+            CREDITS_FILE.write_text(json.dumps(gist_data, ensure_ascii=False, indent=2), "utf-8")
+            print(f"[Gist] Loaded {len(gist_data)} users from Gist")
+        elif CREDITS_FILE.exists():
+            try:
+                _credits_cache = json.loads(CREDITS_FILE.read_text("utf-8"))
+            except Exception:
+                _credits_cache = {}
+        else:
+            _credits_cache = {}
+    return _credits_cache
 
 
 def _save_credits(data: dict):
-    CREDITS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    global _credits_cache
+    _credits_cache = data
+    # Luu local
+    CREDITS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+    # Luu Gist (async-style: ghi thang, chap nhan cham)
+    _gist_save(data)
 
 
 def get_user_credits(user_code: str) -> int:
