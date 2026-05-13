@@ -172,8 +172,47 @@ def api_set_credits():
         "new_credits": new_cred,
     })
     cs._save_credits(data)
-    print(f"[Admin/Set] {user_code}: {old_cred} → {new_cred}")
+    print(f"[Admin/Set] {user_code}: {old_cred} -> {new_cred}")
     return jsonify({"ok": True, "user_code": user_code, "credits": new_cred})
+
+# ── Groq Key endpoint — cung cap Groq key cho user co credit ─────────────────
+@app.route("/groq/key", methods=["GET", "POST"])
+def api_groq_key():
+    """
+    Tra ve Groq API key (cua admin) cho user da co credit > 0.
+    Key duoc luu tren Render env var GROQ_API_KEY (khong bao gio lo trong code).
+
+    GET  /groq/key?user_code=XXXX
+    POST /groq/key  body: {"user_code": "XXXX"}
+    """
+    if request.method == "POST":
+        body = request.get_json(force=True) or {}
+        user_code = str(body.get("user_code", "")).upper().strip()
+    else:
+        user_code = str(request.args.get("user_code", "")).upper().strip()
+
+    if not user_code:
+        return jsonify({"ok": False, "error": "missing user_code"}), 400
+
+    # Kiem tra credits — chi cap key neu user con credit
+    credits = cs.get_user_credits(user_code)
+    if credits <= 0:
+        return jsonify({
+            "ok":      False,
+            "error":   "insufficient_credits",
+            "credits": 0,
+        }), 403
+
+    # Lay Groq key tu env var tren Render (an toan, khong hardcode)
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not groq_key:
+        return jsonify({"ok": False, "error": "groq_not_configured"}), 503
+
+    return jsonify({
+        "ok":      True,
+        "key":     groq_key,
+        "credits": credits,
+    })
 
 # ── Entry point local ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
