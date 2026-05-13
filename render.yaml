@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ah-credit-server
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn credit_server:create_app() --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    plan: free
+    disk:
+      name: credit-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: SEPAY_MERCHANT_ID
+        value: SP-TEST-LH678847
+      - key: SEPAY_SECRET_KEY
+        generateValue: false
+        value: spsk_test_HyqNdk6AHrB66eg3cX3rbKi37yWmJZdj
+      - key: SEPAY_ENV
+        value: sandbox
+      - key: ADMIN_TOKEN
+        generateValue: false
+        value: ahstudio2026
+      - key: PYTHONUNBUFFERED
+        value: "1"
