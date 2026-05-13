@@ -571,6 +571,47 @@ def run_server(host: str = "0.0.0.0", port: int = 5000):
         total = add_credits(user_code, amount, txn_id)
         return jsonify({"user_code": user_code, "credits_total": total})
 
+    # ── Set credits (admin) — dung tu Google Sheet ────────────────────────────
+    @app.route("/credits/set", methods=["POST"])
+    def api_set():
+        """
+        Dat so credit chinh xac (khong tinh theo VND).
+        Dung boi Google Sheet admin khi chinh sua truc tiep.
+        Body: { "user_code": "...", "credits": 100, "admin_token": "ahstudio2026" }
+        """
+        body      = request.get_json(force=True) or {}
+        token     = body.get("admin_token", "") or request.args.get("admin_token", "")
+        if not _check_admin(request) and token != _ADMIN_TOKEN:
+            return jsonify({"error": "unauthorized"}), 401
+        user_code = str(body.get("user_code", "")).upper().strip()
+        new_cred  = int(body.get("credits", -1))
+        if not user_code or new_cred < 0:
+            return jsonify({"error": "missing user_code or credits"}), 400
+
+        data = _load_credits()
+        if user_code not in data:
+            data[user_code] = {
+                "credits": 0, "total_paid_vnd": 0,
+                "top_up_count": 0, "history": [],
+                "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "note": "created_by_sheet_admin",
+            }
+        old_cred = int(data[user_code].get("credits", 0))
+        data[user_code]["credits"] = new_cred
+        data[user_code].setdefault("history", []).append({
+            "time":        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "action":      "admin_set",
+            "old_credits": old_cred,
+            "new_credits": new_cred,
+        })
+        _save_credits(data)
+        print(f"[Admin/Set] {user_code}: {old_cred} → {new_cred}")
+        return jsonify({
+            "ok":        True,
+            "user_code": user_code,
+            "credits":   new_cred,
+        })
+
     env_label = "🧪 SANDBOX" if SEPAY_ENV == "sandbox" else "🚀 PRODUCTION"
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
