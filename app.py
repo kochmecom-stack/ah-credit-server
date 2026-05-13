@@ -129,6 +129,52 @@ def api_all_users():
     data = cs._load_credits()
     return jsonify(data)
 
+# ── Set credits (admin) — dung tu Google Sheet ────────────────────────────────
+@app.route("/credits/set", methods=["POST"])
+def api_set_credits():
+    """
+    Dat so credit chinh xac cho 1 user.
+    Dung boi Google Sheet admin khi chinh sua cot 'Credit Hien Tai'.
+    Body: { "user_code": "4DD3636D8D", "credits": 100, "admin_token": "ahstudio2026" }
+    """
+    admin_token = (
+        request.headers.get("X-Admin-Token") or
+        request.args.get("admin_token") or ""
+    )
+    body        = request.get_json(force=True) or {}
+    # Admin token co the o header hoac trong body
+    if not admin_token:
+        admin_token = body.get("admin_token", "")
+    if admin_token != os.environ.get("ADMIN_TOKEN", "ahstudio2026"):
+        return jsonify({"error": "unauthorized"}), 401
+
+    user_code = str(body.get("user_code", "")).upper().strip()
+    new_cred  = body.get("credits", None)
+    if not user_code or new_cred is None:
+        return jsonify({"error": "missing user_code or credits"}), 400
+    new_cred = max(0, int(new_cred))
+
+    import datetime as _dt
+    data = cs._load_credits()
+    if user_code not in data:
+        data[user_code] = {
+            "credits": 0, "total_paid_vnd": 0,
+            "top_up_count": 0, "history": [],
+            "first_seen": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "note": "created_by_sheet_admin",
+        }
+    old_cred = int(data[user_code].get("credits", 0))
+    data[user_code]["credits"] = new_cred
+    data[user_code].setdefault("history", []).append({
+        "time":        _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "action":      "admin_set",
+        "old_credits": old_cred,
+        "new_credits": new_cred,
+    })
+    cs._save_credits(data)
+    print(f"[Admin/Set] {user_code}: {old_cred} → {new_cred}")
+    return jsonify({"ok": True, "user_code": user_code, "credits": new_cred})
+
 # ── Entry point local ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
