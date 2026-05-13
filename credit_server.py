@@ -175,23 +175,30 @@ def create_user_code(user_code: str, note: str = "") -> dict:
     return credits[user_code]
 
 
-def add_credits(user_code: str, amount_vnd: int, txn_id: str = "") -> int:
+def add_credits(user_code: str, amount_vnd: int, txn_id: str = "", note: str = "") -> int:
     """Cong credit theo so tien VND. Tra ve tong credit sau khi cong."""
     user_code  = user_code.upper().strip()
     new_credit = max(1, amount_vnd // VND_PER_CREDIT)
 
     credits = _load_credits()
     if user_code not in credits:
-        credits[user_code] = {"credits": 0, "total_paid_vnd": 0, "top_up_count": 0, "history": []}
+        credits[user_code] = {
+            "credits": 0, "total_paid_vnd": 0, "top_up_count": 0, "history": [],
+            "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
     credits[user_code]["credits"]        += new_credit
     credits[user_code]["total_paid_vnd"] += amount_vnd
     credits[user_code]["top_up_count"]    = credits[user_code].get("top_up_count", 0) + 1
+    # Luu noi dung chuyen khoan dau tien (dung lam ten khach tren sheet)
+    if not credits[user_code].get("transfer_content") and note:
+        credits[user_code]["transfer_content"] = note
     credits[user_code].setdefault("history", []).append({
         "time":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "vnd":    amount_vnd,
         "credit": new_credit,
         "txn_id": txn_id,
+        "note":   note,
     })
     _save_credits(credits)
     return credits[user_code]["credits"]
@@ -426,8 +433,9 @@ def handle_sepay_ipn(payload: dict, raw_signature: str = "") -> dict:
         print(f"[SePay] Khong tim user code trong: content={content!r} desc={desc!r}")
         return {"code": "1", "message": "no_user_code_found"}
 
-    # 5. Cong credit
-    total = add_credits(user_code, amount, txn_id)
+    # 5. Cong credit (luu noi dung chuyen khoan lam ten khach)
+    transfer_note = content or desc or ""
+    total = add_credits(user_code, amount, txn_id, note=transfer_note)
     added = amount // VND_PER_CREDIT
 
     _log_payment({
