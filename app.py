@@ -16,19 +16,23 @@ import credit_server as cs
 
 app = Flask(__name__)
 
+# ── In-memory log: luu 50 request cuoi de debug ───────────────────────────────
+from collections import deque
+_REQUEST_LOG = deque(maxlen=50)
+
 # ── Keep-alive: tu ping de Render khong ngu (free tier) ──────────────────────
 import threading, time, urllib.request as _ureq
 
 def _keep_alive():
     """Ping chinh minh moi 10 phut de tranh Render ngu."""
-    time.sleep(60)   # doi 1 phut sau khi khoi dong
+    time.sleep(60)
     while True:
         try:
             port = os.environ.get("PORT", "10000")
             _ureq.urlopen(f"http://localhost:{port}/health", timeout=5)
         except Exception:
             pass
-        time.sleep(600)  # 10 phut
+        time.sleep(600)
 
 threading.Thread(target=_keep_alive, daemon=True, name="keep-alive").start()
 
@@ -41,14 +45,33 @@ def health():
         "env":         cs.SEPAY_ENV,
         "bank":        f"{cs.BANK_NAME} {cs.BANK_ACCOUNT_NO}",
         "data_dir":    str(cs._DATA_DIR),
+        "requests_logged": len(_REQUEST_LOG),
     })
+
+# ── Debug: xem 50 IPN request cuoi ───────────────────────────────────────────
+@app.route("/debug/requests", methods=["GET"])
+def debug_requests():
+    return jsonify(list(_REQUEST_LOG))
 
 # ── SePay IPN ─────────────────────────────────────────────────────────────────
 @app.route("/sepay/ipn", methods=["POST"])
 def sepay_ipn():
-    payload = request.get_json(force=True) or {}
-    sig     = request.headers.get("X-Signature", "")
-    result  = cs.handle_sepay_ipn(payload, sig)
+    import datetime as _dt
+    raw_body  = request.get_data(as_text=True)
+    payload   = request.get_json(force=True) or {}
+    sig       = request.headers.get("X-Signature", "")
+    all_hdrs  = dict(request.headers)
+    result    = cs.handle_sepay_ipn(payload, sig)
+
+    # Luu vao in-memory log
+    _REQUEST_LOG.append({
+        "time":    _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ip":      request.remote_addr,
+        "headers": {k: v for k, v in all_hdrs.items() if k.lower() in
+                    ("content-type","x-signature","user-agent","x-forwarded-for")},
+        "body":    raw_body[:500],
+        "result":  result,
+    })
     return jsonify(result), 200
 
 # ── Credit check API ──────────────────────────────────────────────────────────
