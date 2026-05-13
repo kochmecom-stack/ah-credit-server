@@ -1,6 +1,6 @@
 {
   "4DD3636D8D": {
-    "credits": 147,
+    "credits": 47,
     "total_paid_vnd": 150000,
     "top_up_count": 3,
     "history": [
@@ -21,6 +21,12 @@
         "vnd": 50000,
         "credit": 50,
         "txn_id": "57904062"
+      },
+      {
+        "time": "2026-05-13 21:09:59",
+        "action": "admin_set",
+        "old_credits": 147,
+        "new_credits": 47
       }
     ]
   }
