@@ -27,9 +27,9 @@ from datetime import datetime
 from pathlib import Path
 
 # ─── SePay config ─────────────────────────────────────────────────────────────
-SEPAY_MERCHANT_ID  = os.environ.get("SEPAY_MERCHANT_ID",  "SP-TEST-LH678847")
-SEPAY_SECRET_KEY   = os.environ.get("SEPAY_SECRET_KEY",   "spsk_test_HyqNdk6AHrB66eg3cX3rbKi37yWmJZdj")
-SEPAY_ENV          = os.environ.get("SEPAY_ENV",          "sandbox")   # "sandbox" hoac "production"
+SEPAY_MERCHANT_ID  = os.environ.get("SEPAY_MERCHANT_ID",  "SP-PROD-AH")
+SEPAY_SECRET_KEY   = os.environ.get("SEPAY_SECRET_KEY",   "whsec_S6ClPG5FeNJtypyk7e1Co2p3GIu0a2sb")
+SEPAY_ENV          = os.environ.get("SEPAY_ENV",          "production")  # production = xac minh chu ky
 
 # ─── Bank info ────────────────────────────────────────────────────────────────
 BANK_ACCOUNT_NO    = "8867286256"
