@@ -47,82 +47,94 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 CREDITS_FILE = _DATA_DIR / "user_credits.json"
 PAYMENT_LOG  = _DATA_DIR / "payment_log.json"
 
-# GitHub Gist config (lay tu env var tren Render)
-_GIST_ID     = os.environ.get("GIST_ID",     "")
-_GIST_TOKEN  = os.environ.get("GIST_TOKEN",  "")  # GitHub personal access token
-_GIST_FILE   = "ah_credit_data.json"
+# GitHub Repo file storage (khong can gist scope)
+_GH_TOKEN  = os.environ.get("GIST_TOKEN", "")  # reuse same env var name
+_GH_REPO   = os.environ.get("GH_REPO", "kochmecom-stack/ah-credit-server")
+_GH_FILE   = "data/credits.json"   # file trong repo
+_GIST_ID   = ""   # khong dung
 
-# In-memory cache de giam so lan goi Gist API
+# In-memory cache
 _credits_cache: dict | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Gist storage helpers
+# GitHub Repo file storage helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _gist_load() -> dict:
-    """Doc tu GitHub Gist. Tra ve {} neu loi."""
-    if not (_GIST_ID and _GIST_TOKEN):
+_GH_FILE_SHA = ""   # cache SHA de update
+
+def _gh_load() -> dict:
+    """Doc credits.json tu GitHub repo."""
+    global _GH_FILE_SHA
+    if not _GH_TOKEN:
         return {}
     try:
         import urllib.request as _ur
         req = _ur.Request(
-            f"https://api.github.com/gists/{_GIST_ID}",
+            f"https://api.github.com/repos/{_GH_REPO}/contents/{_GH_FILE}",
             headers={
-                "Authorization": f"token {_GIST_TOKEN}",
+                "Authorization": f"token {_GH_TOKEN}",
                 "Accept": "application/vnd.github.v3+json",
                 "User-Agent": "AH-Credit-Server/1.0",
             }
         )
         with _ur.urlopen(req, timeout=10) as r:
-            gist_data = json.loads(r.read())
-            raw = gist_data["files"][_GIST_FILE]["content"]
+            d = json.loads(r.read())
+            _GH_FILE_SHA = d.get("sha", "")
+            import base64 as _b64
+            raw = _b64.b64decode(d["content"].replace("\n", "")).decode("utf-8")
             return json.loads(raw)
     except Exception as e:
-        print(f"[Gist] Load error: {e}")
+        print(f"[GH] Load error: {e}")
         return {}
 
 
-def _gist_save(data: dict):
-    """Luu vao GitHub Gist."""
-    if not (_GIST_ID and _GIST_TOKEN):
+def _gh_save(data: dict):
+    """Luu credits.json vao GitHub repo."""
+    global _GH_FILE_SHA
+    if not _GH_TOKEN:
         return
     try:
-        import urllib.request as _ur
+        import urllib.request as _ur, base64 as _b64
+        content = _b64.b64encode(
+            json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        ).decode()
         body = json.dumps({
-            "files": {_GIST_FILE: {"content": json.dumps(data, ensure_ascii=False, indent=2)}}
+            "message": "chore: update credits",
+            "content": content,
+            "sha":     _GH_FILE_SHA,
         }).encode()
         req = _ur.Request(
-            f"https://api.github.com/gists/{_GIST_ID}",
+            f"https://api.github.com/repos/{_GH_REPO}/contents/{_GH_FILE}",
             data=body,
             headers={
-                "Authorization": f"token {_GIST_TOKEN}",
+                "Authorization": f"token {_GH_TOKEN}",
                 "Accept": "application/vnd.github.v3+json",
                 "Content-Type": "application/json",
                 "User-Agent": "AH-Credit-Server/1.0",
             },
-            method="PATCH"
+            method="PUT"
         )
-        with _ur.urlopen(req, timeout=10) as r:
-            r.read()
+        with _ur.urlopen(req, timeout=15) as r:
+            result = json.loads(r.read())
+            _GH_FILE_SHA = result["content"]["sha"]
+            print(f"[GH] Saved credits -> {result['commit']['sha'][:8]}")
     except Exception as e:
-        print(f"[Gist] Save error: {e}")
+        print(f"[GH] Save error: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Credit management (Gist-backed)
+# Credit management (GitHub repo-backed)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_credits() -> dict:
     global _credits_cache
-    # Lan dau: doc tu Gist
     if _credits_cache is None:
-        gist_data = _gist_load()
-        if gist_data:
-            _credits_cache = gist_data
-            # Sync local cache
-            CREDITS_FILE.write_text(json.dumps(gist_data, ensure_ascii=False, indent=2), "utf-8")
-            print(f"[Gist] Loaded {len(gist_data)} users from Gist")
+        # Load tu GitHub repo truoc
+        gh_data = _gh_load()
+        if gh_data:
+            _credits_cache = gh_data
+            print(f"[GH] Loaded {len(gh_data)} users from repo")
         elif CREDITS_FILE.exists():
             try:
                 _credits_cache = json.loads(CREDITS_FILE.read_text("utf-8"))
@@ -138,8 +150,8 @@ def _save_credits(data: dict):
     _credits_cache = data
     # Luu local
     CREDITS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
-    # Luu Gist (async-style: ghi thang, chap nhan cham)
-    _gist_save(data)
+    # Luu len GitHub repo
+    _gh_save(data)
 
 
 def get_user_credits(user_code: str) -> int:
