@@ -1,0 +1,21 @@
+{
+  "4DD3636D8D": {
+    "credits": 100,
+    "total_paid_vnd": 100000,
+    "top_up_count": 2,
+    "history": [
+      {
+        "time": "2026-05-14 00:02",
+        "vnd": 50000,
+        "credit": 50,
+        "txn_id": "TIMO-715143"
+      },
+      {
+        "time": "2026-05-14 00:19",
+        "vnd": 50000,
+        "credit": 50,
+        "txn_id": "TIMO-717793"
+      }
+    ]
+  }
+}
