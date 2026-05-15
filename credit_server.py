@@ -465,14 +465,17 @@ def handle_sepay_ipn(payload: dict, raw_signature: str = "") -> dict:
 # Flask server
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_server(host: str = "0.0.0.0", port: int = 5000):
+def run_server(host: str = "0.0.0.0", port: int = 5000, _app=None):
     try:
         from flask import Flask, request, jsonify
     except ImportError:
         print("❌ pip install flask")
         return
 
-    app = Flask(__name__)
+    # Neu _app duoc truyen vao (tu create_app), dung luon
+    # Neu khong, tao app moi va start server
+    _standalone = _app is None
+    app = _app if _app is not None else Flask(__name__)
 
     # ── Health check ──────────────────────────────────────────────────────────
     @app.route("/health", methods=["GET"])
@@ -630,6 +633,140 @@ def run_server(host: str = "0.0.0.0", port: int = 5000):
             "credits":   new_cred,
         })
 
+    # ── KIE API Proxy — key chi ton tai tren server ───────────────────────────
+    _KIE_KEY = os.environ.get("KIE_API_KEY", "")
+
+    @app.route("/api/kie/image", methods=["POST"])
+    def api_kie_image():
+        """
+        Proxy tao anh (nano-banana-2). Key KIE chi co tren server, EXE khong biet.
+        Body: {user_code, prompt, aspect_ratio, model, image_url (optional)}
+        Returns: {ok, image_base64, credits}
+        """
+        import requests as _req, base64 as _b64
+        body      = request.get_json(force=True) or {}
+        user_code = str(body.get("user_code", "")).upper().strip()
+        model     = body.get("model", "nano-banana-2")
+        prompt    = body.get("prompt", "")
+        aspect    = body.get("aspect_ratio", "9:16")
+        img_url   = body.get("image_url")   # optional reference image
+
+        if not user_code:
+            return jsonify({"ok": False, "error": "missing_user_code"}), 400
+        if not _KIE_KEY:
+            return jsonify({"ok": False, "error": "service_unavailable"}), 503
+
+        # Kiem tra + tru credit
+        if not deduct_credits(user_code, 1):
+            return jsonify({"ok": False, "error": "insufficient_credits",
+                            "credits": get_user_credits(user_code)}), 402
+
+        hdrs = {"Authorization": f"Bearer {_KIE_KEY}", "Content-Type": "application/json"}
+        inp  = {"prompt": prompt, "aspect_ratio": aspect}
+        if img_url:
+            inp["image_url"] = img_url
+
+        try:
+            r = _req.post("https://api.kie.ai/api/v1/jobs/createTask",
+                          headers=hdrs, json={"model": model, "input": inp}, timeout=30)
+            if r.status_code != 200:
+                add_credits(user_code, 1000, "refund_kie_fail")
+                return jsonify({"ok": False, "error": f"upstream_{r.status_code}"}), 502
+
+            task_id = (r.json().get("data") or {}).get("taskId", "")
+            if not task_id:
+                add_credits(user_code, 1000, "refund_no_task")
+                return jsonify({"ok": False, "error": "no_task_id"}), 502
+
+            # Poll toi da 120s
+            for _ in range(24):
+                time.sleep(5)
+                pr = _req.get(f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
+                              headers=hdrs, timeout=15)
+                if pr.status_code != 200:
+                    continue
+                d      = (pr.json().get("data") or {})
+                status = d.get("status", "")
+                if status in ("succeed", "success", "completed"):
+                    url = ((d.get("works") or [{}])[0]).get("url", "")
+                    if url:
+                        img = _req.get(url, timeout=30)
+                        if img.ok:
+                            return jsonify({"ok": True,
+                                            "image_base64": _b64.b64encode(img.content).decode(),
+                                            "credits": get_user_credits(user_code)})
+                elif status in ("failed", "error", "fail"):
+                    add_credits(user_code, 1000, "refund_gen_failed")
+                    return jsonify({"ok": False, "error": "generation_failed"}), 502
+
+            return jsonify({"ok": False, "error": "timeout", "task_id": task_id}), 504
+
+        except Exception as e:
+            add_credits(user_code, 1000, "refund_exception")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/kie/video_task", methods=["POST"])
+    def api_kie_video_task():
+        """
+        Tao task video (Kling, Seedance) — tra ve task_id, client tu poll.
+        Body: {user_code, model, input, credits}
+        """
+        import requests as _req
+        body      = request.get_json(force=True) or {}
+        user_code = str(body.get("user_code", "")).upper().strip()
+        model     = body.get("model", "")
+        inp       = body.get("input", {})
+        credits   = max(1, int(body.get("credits", 1)))
+
+        if not user_code or not model:
+            return jsonify({"ok": False, "error": "missing_params"}), 400
+        if not _KIE_KEY:
+            return jsonify({"ok": False, "error": "service_unavailable"}), 503
+
+        if not deduct_credits(user_code, credits):
+            return jsonify({"ok": False, "error": "insufficient_credits",
+                            "credits": get_user_credits(user_code)}), 402
+
+        hdrs = {"Authorization": f"Bearer {_KIE_KEY}", "Content-Type": "application/json"}
+        try:
+            r = _req.post("https://api.kie.ai/api/v1/jobs/createTask",
+                          headers=hdrs, json={"model": model, "input": inp}, timeout=30)
+            if r.status_code != 200:
+                add_credits(user_code, credits * 1000, "refund_task_fail")
+                return jsonify({"ok": False, "error": f"upstream_{r.status_code}"}), 502
+
+            task_id = (r.json().get("data") or {}).get("taskId", "")
+            if not task_id:
+                add_credits(user_code, credits * 1000, "refund_no_task")
+                return jsonify({"ok": False, "error": "no_task_id"}), 502
+
+            return jsonify({"ok": True, "task_id": task_id,
+                            "credits": get_user_credits(user_code)})
+        except Exception as e:
+            add_credits(user_code, credits * 1000, "refund_exception")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/kie/poll/<task_id>", methods=["GET"])
+    def api_kie_poll(task_id):
+        """Proxy kiem tra trang thai task — khong lo key, khong tru credit."""
+        import requests as _req
+        if not _KIE_KEY:
+            return jsonify({"ok": False, "error": "service_unavailable"}), 503
+        try:
+            hdrs = {"Authorization": f"Bearer {_KIE_KEY}"}
+            pr   = _req.get(f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
+                            headers=hdrs, timeout=15)
+            if pr.status_code != 200:
+                return jsonify({"ok": False, "status": "unknown"}), pr.status_code
+            d      = pr.json().get("data") or {}
+            status = d.get("status", "")
+            urls   = [w.get("url", "") for w in (d.get("works") or []) if w.get("url")]
+            done   = status in ("succeed", "success", "completed", "failed", "error", "fail")
+            return jsonify({"ok": True, "status": status, "urls": urls,
+                            "done": done, "success": status in ("succeed", "success", "completed")})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
     env_label = "🧪 SANDBOX" if SEPAY_ENV == "sandbox" else "🚀 PRODUCTION"
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
@@ -648,7 +785,9 @@ def run_server(host: str = "0.0.0.0", port: int = 5000):
 ╚═══════════════════════════════════════════════════════════╝
 """)
 
-    app.run(host=host, port=port, debug=False)
+    if _standalone:
+        app.run(host=host, port=port, debug=False)
+    return app
 
 
 def create_app():
@@ -657,13 +796,13 @@ def create_app():
     Usage: gunicorn 'credit_server:create_app()' --bind 0.0.0.0:$PORT
     """
     try:
-        from flask import Flask, request, jsonify
+        from flask import Flask  # noqa: F401
     except ImportError:
         raise RuntimeError("pip install flask")
-
     app = Flask(__name__)
-    _register_routes(app)
+    run_server(_app=app)   # register routes, skip app.run()
     return app
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
