@@ -375,6 +375,65 @@ def api_kie_poll(task_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/kie/upload", methods=["POST"])
+def api_kie_upload():
+    """
+    Proxy upload file (anh/video) len KIE CDN.
+    Client gui base64, server dung key de upload, tra ve downloadUrl.
+    Body: {user_code, file_base64, filename, mime_type}
+    Returns: {ok, url, error}
+    """
+    import requests as _req, base64 as _b64, io as _io
+    body      = request.get_json(force=True) or {}
+    user_code = str(body.get("user_code", "")).upper().strip()
+    file_b64  = body.get("file_base64", "")
+    filename  = body.get("filename", "upload.jpg")
+    mime_type = body.get("mime_type", "image/jpeg")
+
+    if not user_code or not file_b64:
+        return jsonify({"ok": False, "error": "missing_params"}), 400
+    if not _KIE_KEY:
+        return jsonify({"ok": False, "error": "service_unavailable"}), 503
+
+    # Kiem tra credits (upload khong tru credit, chi can > 0)
+    if cs.get_user_credits(user_code) <= 0:
+        return jsonify({"ok": False, "error": "insufficient_credits"}), 402
+
+    try:
+        file_bytes = _b64.b64decode(file_b64)
+        hdrs = {"Authorization": f"Bearer {_KIE_KEY}"}
+        r = _req.post(
+            "https://kieai.redpandaai.co/api/file-stream-upload",
+            headers=hdrs,
+            files={"file": (filename, _io.BytesIO(file_bytes), mime_type)},
+            data={"uploadPath": "uploads/"},
+            timeout=120,
+        )
+        data = r.json() if r.status_code == 200 else {}
+        url  = (data.get("data") or {}).get("downloadUrl", "")
+        if url:
+            return jsonify({"ok": True, "url": url})
+        # Fallback: thu base64 upload endpoint
+        payload_b64 = {
+            "fileBase64": file_b64,
+            "fileName":   filename,
+            "mimeType":   mime_type,
+        }
+        r2 = _req.post(
+            "https://kieai.redpandaai.co/api/file/upload/base64",
+            headers={**hdrs, "Content-Type": "application/json"},
+            json=payload_b64,
+            timeout=60,
+        )
+        data2 = r2.json() if r2.status_code == 200 else {}
+        url2  = (data2.get("data") or {}).get("fileUrl", "") or (data2.get("data") or {}).get("downloadUrl", "")
+        if url2:
+            return jsonify({"ok": True, "url": url2})
+        return jsonify({"ok": False, "error": f"upload_failed_http_{r.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Entry point local ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
