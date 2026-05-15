@@ -678,24 +678,33 @@ def run_server(host: str = "0.0.0.0", port: int = 5000, _app=None):
                 add_credits(user_code, 1000, "refund_no_task")
                 return jsonify({"ok": False, "error": "no_task_id"}), 502
 
-            # Poll toi da 120s
+            # Poll toi da 120s — KIE API dung state+resultJson
             for _ in range(24):
                 time.sleep(5)
                 pr = _req.get(f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
                               headers=hdrs, timeout=15)
                 if pr.status_code != 200:
                     continue
-                d      = (pr.json().get("data") or {})
-                status = d.get("status", "")
-                if status in ("succeed", "success", "completed"):
-                    url = ((d.get("works") or [{}])[0]).get("url", "")
+                d     = (pr.json().get("data") or {})
+                state = str(d.get("state") or d.get("status") or "").lower()
+                if state == "success":
+                    # KIE anh: resultJson -> resultUrls[0]
+                    import json as _jj
+                    try:
+                        rj  = _jj.loads(d.get("resultJson") or "{}")
+                        url = (rj.get("resultUrls") or [""])[0]
+                    except Exception:
+                        url = ""
+                    # fallback: works array (neu co)
+                    if not url:
+                        url = ((d.get("works") or [{}])[0]).get("url", "")
                     if url:
                         img = _req.get(url, timeout=30)
                         if img.ok:
                             return jsonify({"ok": True,
                                             "image_base64": _b64.b64encode(img.content).decode(),
                                             "credits": get_user_credits(user_code)})
-                elif status in ("failed", "error", "fail"):
+                elif state in ("fail", "failed", "error"):
                     add_credits(user_code, 1000, "refund_gen_failed")
                     return jsonify({"ok": False, "error": "generation_failed"}), 502
 
@@ -749,7 +758,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5000, _app=None):
     @app.route("/api/kie/poll/<task_id>", methods=["GET"])
     def api_kie_poll(task_id):
         """Proxy kiem tra trang thai task — khong lo key, khong tru credit."""
-        import requests as _req
+        import requests as _req, json as _jj
         if not _KIE_KEY:
             return jsonify({"ok": False, "error": "service_unavailable"}), 503
         try:
@@ -758,12 +767,23 @@ def run_server(host: str = "0.0.0.0", port: int = 5000, _app=None):
                             headers=hdrs, timeout=15)
             if pr.status_code != 200:
                 return jsonify({"ok": False, "status": "unknown"}), pr.status_code
-            d      = pr.json().get("data") or {}
-            status = d.get("status", "")
-            urls   = [w.get("url", "") for w in (d.get("works") or []) if w.get("url")]
-            done   = status in ("succeed", "success", "completed", "failed", "error", "fail")
-            return jsonify({"ok": True, "status": status, "urls": urls,
-                            "done": done, "success": status in ("succeed", "success", "completed")})
+            d     = pr.json().get("data") or {}
+            state = str(d.get("state") or d.get("status") or "").lower()
+
+            # Lay URL ket qua — ho tro ca 2 format KIE
+            urls = []
+            try:
+                rj = _jj.loads(d.get("resultJson") or "{}")
+                urls = rj.get("resultUrls") or []
+            except Exception:
+                pass
+            if not urls:
+                urls = [w.get("url", "") for w in (d.get("works") or []) if w.get("url")]
+
+            done    = state in ("success", "fail", "failed", "error")
+            success = (state == "success")
+            return jsonify({"ok": True, "status": state, "urls": urls,
+                            "done": done, "success": success})
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
 
