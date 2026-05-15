@@ -509,15 +509,25 @@ def run_server(host: str = "0.0.0.0", port: int = 5000):
             "can_use_quality": c >= COST_IMAGE_QUALITY,
         })
 
-    # ── Deduct credits (goi tu Shopee workflow) ───────────────────────────────
+    # ── Deduct credits (goi tu Shopee workflow / Seedance / Kling) ──────────────
     @app.route("/credits/deduct", methods=["POST"])
     def api_deduct():
         body      = request.get_json(force=True) or {}
         user_code = body.get("user_code", "")
         model     = body.get("model", "fast")  # "fast" or "quality"
+        # Neu co field 'amount' (raw credits) thi dung luon, bo qua model
+        raw_amount = body.get("amount")
         if not user_code:
             return jsonify({"ok": False, "error": "missing user_code"}), 400
-        ok = check_and_deduct(user_code, model)
+        if raw_amount is not None:
+            # Trừ đúng số credits do client tự tính (Seedance, Shopee, Motion...)
+            try:
+                cost = max(1, int(raw_amount))
+            except (TypeError, ValueError):
+                cost = 1
+            ok = deduct_credits(user_code, cost)
+        else:
+            ok = check_and_deduct(user_code, model)
         return jsonify({
             "ok":      ok,
             "credits": get_user_credits(user_code),
