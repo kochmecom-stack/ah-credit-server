@@ -1,6 +1,6 @@
 {
   "4DD3636D8D": {
-    "credits": 6,
+    "credits": 60,
     "total_paid_vnd": 250000,
     "top_up_count": 5,
     "history": [
@@ -65,6 +65,12 @@
         "action": "admin_set",
         "old_credits": 95,
         "new_credits": 9
+      },
+      {
+        "time": "2026-05-15 23:38:48",
+        "action": "admin_set",
+        "old_credits": 6,
+        "new_credits": 60
       }
     ],
     "transfer_content": "4DD3636D8D GD 6136IBT1iJBBWGTC 160526-00:36:41"
