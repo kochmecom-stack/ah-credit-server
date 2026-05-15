@@ -223,6 +223,158 @@ def api_groq_key():
         "credits": credits,
     })
 
+# ── KIE API Proxy — key chi ton tai tren server, EXE khong biet ──────────────
+_KIE_KEY = os.environ.get("KIE_API_KEY", "").strip()
+
+@app.route("/api/kie/image", methods=["POST"])
+def api_kie_image():
+    """
+    Proxy tao anh (nano-banana-2). Key KIE chi co tren server.
+    Body: {user_code, prompt, aspect_ratio, model, image_url (optional)}
+    Returns: {ok, image_base64, credits}
+    """
+    import requests as _req, base64 as _b64, json as _jj
+    body       = request.get_json(force=True) or {}
+    user_code  = str(body.get("user_code", "")).upper().strip()
+    prompt     = body.get("prompt", "")
+    aspect     = body.get("aspect_ratio", "9:16")
+    model      = body.get("model", "nano-banana-2")
+    img_url    = body.get("image_url", "")
+
+    if not user_code or not prompt:
+        return jsonify({"ok": False, "error": "missing_params"}), 400
+    if not _KIE_KEY:
+        return jsonify({"ok": False, "error": "service_unavailable"}), 503
+
+    if not cs.deduct_credits(user_code, 1):
+        return jsonify({"ok": False, "error": "insufficient_credits",
+                        "credits": cs.get_user_credits(user_code)}), 402
+
+    hdrs = {"Authorization": f"Bearer {_KIE_KEY}", "Content-Type": "application/json"}
+    inp  = {"prompt": prompt, "aspect_ratio": aspect}
+    if img_url:
+        inp["image_url"] = img_url
+
+    try:
+        r = _req.post("https://api.kie.ai/api/v1/jobs/createTask",
+                      headers=hdrs, json={"model": model, "input": inp}, timeout=30)
+        if r.status_code != 200:
+            cs.add_credits(user_code, 1000, "refund_kie_fail")
+            return jsonify({"ok": False, "error": f"upstream_{r.status_code}"}), 502
+
+        task_id = (r.json().get("data") or {}).get("taskId", "")
+        if not task_id:
+            cs.add_credits(user_code, 1000, "refund_no_task")
+            return jsonify({"ok": False, "error": "no_task_id"}), 502
+
+        # Poll toi da 120s — KIE dung state+resultJson
+        import time as _t
+        for _ in range(24):
+            _t.sleep(5)
+            pr = _req.get(f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
+                          headers=hdrs, timeout=15)
+            if pr.status_code != 200:
+                continue
+            d     = (pr.json().get("data") or {})
+            state = str(d.get("state") or d.get("status") or "").lower()
+            if state == "success":
+                try:
+                    rj  = _jj.loads(d.get("resultJson") or "{}")
+                    url = (rj.get("resultUrls") or [""])[0]
+                except Exception:
+                    url = ""
+                if not url:
+                    url = ((d.get("works") or [{}])[0]).get("url", "")
+                if url:
+                    img = _req.get(url, timeout=30)
+                    if img.ok:
+                        return jsonify({"ok": True,
+                                        "image_base64": _b64.b64encode(img.content).decode(),
+                                        "credits": cs.get_user_credits(user_code)})
+            elif state in ("fail", "failed", "error"):
+                cs.add_credits(user_code, 1000, "refund_gen_failed")
+                return jsonify({"ok": False, "error": "generation_failed"}), 502
+
+        return jsonify({"ok": False, "error": "timeout", "task_id": task_id}), 504
+
+    except Exception as e:
+        cs.add_credits(user_code, 1000, "refund_exception")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/kie/video_task", methods=["POST"])
+def api_kie_video_task():
+    """
+    Tao task video/anh (Kling, Seedance, TryOn). Tra ve task_id, client tu poll.
+    Body: {user_code, model, input, credits}
+    """
+    import requests as _req
+    body      = request.get_json(force=True) or {}
+    user_code = str(body.get("user_code", "")).upper().strip()
+    model     = body.get("model", "")
+    inp       = body.get("input", {})
+    credits   = max(1, int(body.get("credits", 1)))
+
+    if not user_code or not model:
+        return jsonify({"ok": False, "error": "missing_params"}), 400
+    if not _KIE_KEY:
+        return jsonify({"ok": False, "error": "service_unavailable"}), 503
+
+    if not cs.deduct_credits(user_code, credits):
+        return jsonify({"ok": False, "error": "insufficient_credits",
+                        "credits": cs.get_user_credits(user_code)}), 402
+
+    hdrs = {"Authorization": f"Bearer {_KIE_KEY}", "Content-Type": "application/json"}
+    try:
+        r = _req.post("https://api.kie.ai/api/v1/jobs/createTask",
+                      headers=hdrs, json={"model": model, "input": inp}, timeout=30)
+        if r.status_code != 200:
+            cs.add_credits(user_code, credits * 1000, "refund_kie_fail")
+            return jsonify({"ok": False, "error": f"upstream_{r.status_code}"}), 502
+
+        task_id = (r.json().get("data") or {}).get("taskId", "")
+        if not task_id:
+            cs.add_credits(user_code, credits * 1000, "refund_no_task")
+            return jsonify({"ok": False, "error": "no_task_id"}), 502
+
+        return jsonify({"ok": True, "task_id": task_id,
+                        "credits": cs.get_user_credits(user_code)})
+    except Exception as e:
+        cs.add_credits(user_code, credits * 1000, "refund_exception")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/kie/poll/<task_id>", methods=["GET"])
+def api_kie_poll(task_id):
+    """Proxy kiem tra trang thai task — khong lo key, khong tru credit."""
+    import requests as _req, json as _jj
+    if not _KIE_KEY:
+        return jsonify({"ok": False, "error": "service_unavailable"}), 503
+    try:
+        hdrs = {"Authorization": f"Bearer {_KIE_KEY}"}
+        pr   = _req.get(f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
+                        headers=hdrs, timeout=15)
+        if pr.status_code != 200:
+            return jsonify({"ok": False, "status": "unknown"}), pr.status_code
+        d     = pr.json().get("data") or {}
+        state = str(d.get("state") or d.get("status") or "").lower()
+        # Lay URL — ho tro ca 2 format KIE
+        urls = []
+        try:
+            rj   = _jj.loads(d.get("resultJson") or "{}")
+            urls = rj.get("resultUrls") or []
+        except Exception:
+            pass
+        if not urls:
+            urls = [w.get("url", "") for w in (d.get("works") or []) if w.get("url")]
+        done    = state in ("success", "fail", "failed", "error")
+        success = (state == "success")
+        return jsonify({"ok": True, "status": state, "urls": urls,
+                        "done": done, "success": success})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Entry point local ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
