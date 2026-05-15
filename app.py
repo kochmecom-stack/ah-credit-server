@@ -93,7 +93,16 @@ def api_deduct():
     model     = body.get("model", "fast")
     if not user_code:
         return jsonify({"ok": False, "error": "missing user_code"}), 400
-    ok = cs.check_and_deduct(user_code, model)
+    # Neu co field "amount" (raw credits) -> tru dung so luong do
+    raw_amount = body.get("amount")
+    if raw_amount is not None:
+        try:
+            cost = max(1, int(raw_amount))
+        except (TypeError, ValueError):
+            cost = 1
+        ok = cs.deduct_credits(user_code, cost)
+    else:
+        ok = cs.check_and_deduct(user_code, model)
     return jsonify({
         "ok":      ok,
         "credits": cs.get_user_credits(user_code),
