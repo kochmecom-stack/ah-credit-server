@@ -1,6 +1,6 @@
 {
   "4DD3636D8D": {
-    "credits": 10,
+    "credits": 1000,
     "total_paid_vnd": 150000,
     "top_up_count": 3,
     "history": [
@@ -33,6 +33,12 @@
         "action": "admin_set",
         "old_credits": 47,
         "new_credits": 55
+      },
+      {
+        "time": "2026-05-15 08:37:50",
+        "action": "admin_set",
+        "old_credits": 10,
+        "new_credits": 1000
       }
     ]
   }
