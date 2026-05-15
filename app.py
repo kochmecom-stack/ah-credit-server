@@ -434,6 +434,43 @@ def api_kie_upload():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/kie/upload_mp", methods=["POST"])
+def api_kie_upload_mp():
+    """
+    Proxy upload file len KIE CDN bang multipart (nhanh hon base64 ~30%).
+    Client gui multipart: user_code (form field) + file (file field).
+    Returns: {ok, url, error}
+    """
+    import requests as _req, io as _io
+    user_code = request.form.get("user_code", "").upper().strip()
+    f         = request.files.get("file")
+
+    if not user_code or not f:
+        return jsonify({"ok": False, "error": "missing_params"}), 400
+    if not _KIE_KEY:
+        return jsonify({"ok": False, "error": "service_unavailable"}), 503
+    if cs.get_user_credits(user_code) <= 0:
+        return jsonify({"ok": False, "error": "insufficient_credits"}), 402
+
+    try:
+        file_bytes = f.read()
+        hdrs = {"Authorization": f"Bearer {_KIE_KEY}"}
+        r = _req.post(
+            "https://kieai.redpandaai.co/api/file-stream-upload",
+            headers=hdrs,
+            files={"file": (f.filename, _io.BytesIO(file_bytes), f.mimetype)},
+            data={"uploadPath": "uploads/"},
+            timeout=120,
+        )
+        data = r.json() if r.status_code == 200 else {}
+        url  = (data.get("data") or {}).get("downloadUrl", "")
+        if url:
+            return jsonify({"ok": True, "url": url})
+        return jsonify({"ok": False, "error": f"kie_http_{r.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Entry point local ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
