@@ -53,6 +53,22 @@ def health():
 def debug_requests():
     return jsonify(list(_REQUEST_LOG))
 
+# ── Version check API (dung cho auto-update notification trong client) ────────
+@app.route("/api/version", methods=["GET"])
+def api_version():
+    """
+    Tra ve thong tin phien ban moi nhat.
+    Admin chi can cap nhat env vars tren Render dashboard, khong can rebuild client.
+    ENV: LATEST_VERSION, LATEST_URL, LATEST_NOTE, LATEST_SIZE_MB
+    """
+    return jsonify({
+        "version":  os.environ.get("LATEST_VERSION", "VS6.62"),
+        "url":      os.environ.get("LATEST_URL", ""),
+        "note":     os.environ.get("LATEST_NOTE", "Cap nhat moi nhat tu server"),
+        "size_mb":  int(os.environ.get("LATEST_SIZE_MB", "355")),
+    }), 200
+
+
 # ── SePay IPN ─────────────────────────────────────────────────────────────────
 @app.route("/sepay/ipn", methods=["POST"])
 def sepay_ipn():
