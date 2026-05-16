@@ -74,5 +74,20 @@
       }
     ],
     "transfer_content": "4DD3636D8D GD 6136IBT1iJBBWGTC 160526-00:36:41"
+  },
+  "402F1DF9FB": {
+    "credits": 6,
+    "total_paid_vnd": 0,
+    "top_up_count": 0,
+    "history": [
+      {
+        "time": "2026-05-16 01:15:21",
+        "action": "admin_set",
+        "old_credits": 0,
+        "new_credits": 6
+      }
+    ],
+    "first_seen": "2026-05-16 01:15:21",
+    "note": "created_by_sheet_admin"
   }
 }
