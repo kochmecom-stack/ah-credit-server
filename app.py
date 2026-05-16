@@ -36,6 +36,71 @@ def _keep_alive():
 
 threading.Thread(target=_keep_alive, daemon=True, name="keep-alive").start()
 
+
+# ── Version gate: block cac ban cu hon MIN_CLIENT_VERSION ─────────────────────
+def _parse_ver(s):
+    """'VS6.67' -> (6, 67)"""
+    try:
+        clean = str(s).strip().upper().lstrip("VS").lstrip("V")
+        return tuple(int(p) for p in clean.split("."))
+    except Exception:
+        return (0,)
+
+# Cac endpoint can xac thuc version client
+_VERSION_PROTECTED = (
+    "/credits/deduct",
+    "/api/kie/",
+    "/groq/key",
+)
+# Cac endpoint khong can kiem tra (public/admin)
+_VERSION_EXEMPT = (
+    "/health",
+    "/api/version",
+    "/sepay/ipn",
+    "/users",
+    "/credits/add",
+    "/credits/set",
+    "/debug/",
+)
+
+@app.before_request
+def _check_client_version():
+    path = request.path
+    # Exempt public/admin routes
+    for exempt in _VERSION_EXEMPT:
+        if path.startswith(exempt):
+            return None
+    # Check protected routes
+    needs_check = any(path.startswith(p) for p in _VERSION_PROTECTED)
+    # Also check /credits/<user_code> GET
+    if not needs_check and path.startswith("/credits/") and path not in ("/credits/deduct", "/credits/add", "/credits/set"):
+        needs_check = True
+
+    if not needs_check:
+        return None
+
+    client_ver_str = request.headers.get("X-Client-Version", "").strip()
+    min_ver_str    = os.environ.get("MIN_CLIENT_VERSION", "VS6.67").strip()
+    min_ver        = _parse_ver(min_ver_str)
+
+    if not client_ver_str:
+        return jsonify({
+            "ok":    False,
+            "error": "version_too_old",
+            "msg":   f"Phien ban qua cu. Vui long cap nhat {min_ver_str} tai: https://t.me/ahstudio_vn",
+        }), 403
+
+    client_ver = _parse_ver(client_ver_str)
+    if client_ver < min_ver:
+        return jsonify({
+            "ok":    False,
+            "error": "version_too_old",
+            "msg":   f"Ban {client_ver_str} khong con duoc ho tro. Cap nhat {min_ver_str}.",
+        }), 403
+
+    return None
+
+
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
@@ -62,14 +127,13 @@ def api_version():
     ENV: LATEST_VERSION, LATEST_URL, LATEST_NOTE, LATEST_SIZE_MB
     """
     return jsonify({
-        "version":  os.environ.get("LATEST_VERSION", "VS6.63"),
+        "version":  os.environ.get("LATEST_VERSION", "VS6.67"),
         "url":      os.environ.get("LATEST_URL",
-                        "https://drive.google.com/file/d/1ToxYh8mCnIvFpu5ts4nUPaWNRihjesJi/view"),
+                        "https://drive.google.com/file/d/1aIL_EkHXex1FXgl2NS9rHRIiW2kfLU1X/view"),
         "note":     os.environ.get("LATEST_NOTE",
-                        "Fix Motion Control, QR net hon, bao nhieu credit con lai ro rang hon"),
-        "size_mb":  int(os.environ.get("LATEST_SIZE_MB", "355")),
+                        "Bat buoc cap nhat - fix loi bao mat quan trong"),
+        "size_mb":  int(os.environ.get("LATEST_SIZE_MB", "177")),
     }), 200
-
 
 # ── SePay IPN ─────────────────────────────────────────────────────────────────
 @app.route("/sepay/ipn", methods=["POST"])
@@ -202,7 +266,6 @@ def api_set_credits():
     print(f"[Admin/Set] {user_code}: {old_cred} -> {new_cred}")
     return jsonify({"ok": True, "user_code": user_code, "credits": new_cred})
 
-# ── Groq Key endpoint — cung cap Groq key cho user co credit ─────────────────
 @app.route("/groq/key", methods=["GET", "POST"])
 def api_groq_key():
     """
@@ -241,7 +304,6 @@ def api_groq_key():
         "credits": credits,
     })
 
-# ── KIE API Proxy — key chi ton tai tren server, EXE khong biet ──────────────
 _KIE_KEY = os.environ.get("KIE_API_KEY", "").strip()
 
 @app.route("/api/kie/image", methods=["POST"])
@@ -487,7 +549,6 @@ def api_kie_upload_mp():
         return jsonify({"ok": False, "error": f"kie_http_{r.status_code}"}), 502
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
 
 # ── Entry point local ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
