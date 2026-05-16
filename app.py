@@ -62,9 +62,11 @@ def api_version():
     ENV: LATEST_VERSION, LATEST_URL, LATEST_NOTE, LATEST_SIZE_MB
     """
     return jsonify({
-        "version":  os.environ.get("LATEST_VERSION", "VS6.62"),
-        "url":      os.environ.get("LATEST_URL", ""),
-        "note":     os.environ.get("LATEST_NOTE", "Cap nhat moi nhat tu server"),
+        "version":  os.environ.get("LATEST_VERSION", "VS6.63"),
+        "url":      os.environ.get("LATEST_URL",
+                        "https://drive.google.com/file/d/1ToxYh8mCnIvFpu5ts4nUPaWNRihjesJi/view"),
+        "note":     os.environ.get("LATEST_NOTE",
+                        "Fix Motion Control, QR net hon, bao nhieu credit con lai ro rang hon"),
         "size_mb":  int(os.environ.get("LATEST_SIZE_MB", "355")),
     }), 200
 
