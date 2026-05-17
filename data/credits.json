@@ -158,7 +158,7 @@
     "note": "created_by_sheet_admin"
   },
   "241D090E3A": {
-    "credits": 500,
+    "credits": 777,
     "total_paid_vnd": 0,
     "top_up_count": 0,
     "history": [
@@ -173,6 +173,12 @@
         "action": "admin_set",
         "old_credits": 500,
         "new_credits": 500
+      },
+      {
+        "time": "2026-05-17 09:18:54",
+        "action": "admin_set",
+        "old_credits": 500,
+        "new_credits": 777
       }
     ],
     "first_seen": "2026-05-17 08:05:31",
