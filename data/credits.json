@@ -88,7 +88,7 @@
     "transfer_content": "4DD3636D8D GD 6136IBT1iJBBWGTC 160526-00:36:41"
   },
   "402F1DF9FB": {
-    "credits": 0,
+    "credits": 500,
     "total_paid_vnd": 99999,
     "top_up_count": 1,
     "history": [
@@ -146,6 +146,12 @@
         "action": "admin_set",
         "old_credits": 105,
         "new_credits": 0
+      },
+      {
+        "time": "2026-05-17 08:30:03",
+        "action": "admin_set",
+        "old_credits": 0,
+        "new_credits": 500
       }
     ],
     "first_seen": "2026-05-16 01:15:21",
