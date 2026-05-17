@@ -167,6 +167,12 @@
         "action": "admin_set",
         "old_credits": 0,
         "new_credits": 500
+      },
+      {
+        "time": "2026-05-17 08:30:04",
+        "action": "admin_set",
+        "old_credits": 500,
+        "new_credits": 500
       }
     ],
     "first_seen": "2026-05-17 08:05:31",
